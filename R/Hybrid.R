@@ -10,7 +10,7 @@
 #' @return A positive integer indicating the optimal number of clusters
 #'
 #' @export
-#' @importFrom stats cor optimize pchisq quantile rmultinom
+#' @importFrom stats cor optimize pchisq quantile rmultinom optim runif
 #'
 #' @examples ######## Run the following codes in order:
 #' @examples ##
@@ -30,6 +30,8 @@
 #' @examples plot_abundance(result, sample_data, Treatment = rep(c(1,2,3,4), each = 4))
 Hybrid = function(data, absolute = FALSE, Kstart = NULL, Treatment){
   if(is.null(Kstart)){Kstart = min(max(floor(sqrt(nrow(data))), 50), nrow(data))}
+  # if(length(unique(Treatment)) == 1){absolute = TRUE}
+
   i0 = c(match(unique(Treatment), Treatment), length(Treatment) + 1)
   mydata = find_norm(data, Treatment)
   s = mydata$Normalizer
@@ -44,6 +46,7 @@ Hybrid = function(data, absolute = FALSE, Kstart = NULL, Treatment){
   final = fn$final
   mu = fn$mu
   q = fn$q
+  alpha = fn$alpha
 
   steps = rep(0, Kstart-1)
   r0 = rep(0, Kstart-1)
@@ -62,7 +65,6 @@ Hybrid = function(data, absolute = FALSE, Kstart = NULL, Treatment){
     return(list(alpha = alphaij, mu = muij, q = qij, l = l))
   }
 
-
   for(ind in 1:Kstart){
     if(ind == 1){
 
@@ -73,6 +75,7 @@ Hybrid = function(data, absolute = FALSE, Kstart = NULL, Treatment){
         datai = data[final == i, ]
         if(is.vector(datai)) datai = matrix(datai, nrow = 1)
         else datai = as.matrix(datai, ncol = length(Treatment))
+        if(is.null(dim(mu))) mu = matrix(mu, ncol = 1)
         alphai = (Est_alpha(s, datai, mu, Treatment))[, i]
         a = g(datai, s, alphai, Treatment, i0)
         alpha[final == i] = a$alpha
@@ -86,7 +89,6 @@ Hybrid = function(data, absolute = FALSE, Kstart = NULL, Treatment){
           l[i,j] = l0[i] + l0[j] - try(i, j, final)$l
         }
       }
-
     }
 
     min_l = min(l)
@@ -115,6 +117,7 @@ Hybrid = function(data, absolute = FALSE, Kstart = NULL, Treatment){
     i = merg[1]
     datai = data[final == i, ]
     if(is.vector(datai)){datai = matrix(datai, nrow = 1)} else{datai = as.matrix(datai, ncol = length(Treatment))}
+    if(is.null(dim(mu))) mu = matrix(mu, ncol = 1)
     alphai = (Est_alpha(s, datai, mu, Treatment))[, which(i == as.numeric(levels(final)))]
     a = g(datai, s, alphai, Treatment, i0)
     l0[merg[1]] = a$l
@@ -133,12 +136,11 @@ Hybrid = function(data, absolute = FALSE, Kstart = NULL, Treatment){
 
   }
 
-  h = c(steps, r0)
   I = length(unique(Treatment))
 
   p_v = c()
-  for(i in 1:(length(h)/2)){
-    temp = 1 - pchisq(h[i], df = h[i+length(h)/2] + 2*I-1)
+  for(i in 1:length(steps)){
+    temp = 1 - pchisq(steps[i], df = r0[i] + 2*I-1)
     p_v = c(p_v, temp)
   }
 

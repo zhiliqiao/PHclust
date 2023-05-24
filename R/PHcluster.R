@@ -19,7 +19,7 @@
 #' \item{Normalizer}{vector of length P. The normalizing constant of sequencing depth for each sample.}
 #' }
 #'
-#' @importFrom stats cor optimize pchisq quantile rmultinom
+#' @importFrom stats cor optimize pchisq quantile rmultinom optim runif
 #' @export
 #'
 #' @examples ######## Run the following codes in order:
@@ -39,6 +39,7 @@
 #' @examples ## Plot the feature abundance level for each cluster
 #' @examples plot_abundance(result, sample_data, Treatment = rep(c(1,2,3,4), each = 4))
 PHcluster = function(data, Treatment, nK, method = c('EM', 'SA'), absolute = FALSE, cool = 0.9, nstart = 1){
+  if(length(unique(Treatment)) == 1){absolute = TRUE}
   mydata = find_norm(data, Treatment)
 
   l0 = c()
@@ -47,6 +48,9 @@ PHcluster = function(data, Treatment, nK, method = c('EM', 'SA'), absolute = FAL
   alpha0 = list()
 
   dis = dis_tau(mydata)
+
+  run_times = as.list(1:nstart) # computational time. Delete after use
+  lglk_l = as.list(1:nstart) # list of lglk in each iteration. Delete after use
 
   for(tr in 1:nstart){
     starting = initial(mydata, nK, dis)
@@ -57,6 +61,8 @@ PHcluster = function(data, Treatment, nK, method = c('EM', 'SA'), absolute = FAL
     f0[[tr]] = fn$final
     Z0[[tr]] = fn$Z
     alpha0[[tr]] = fn$alpha
+    lglk_l[[tr]] = fn$lglk_l # list of lglk in each iteration. Delete after use
+    run_times[[tr]] = fn$run_times # computational time. Delete after use
   }
 
   final = f0[[which.max(l0)]]
@@ -75,7 +81,8 @@ PHcluster = function(data, Treatment, nK, method = c('EM', 'SA'), absolute = FAL
     else alpha[final == i] = as.vector(alphai[, i])
   }
 
-  return(list(prob = Z1, cluster = final, log_l = l1, alpha = alpha, Normalizer = s))
+  return(list(prob = Z1, cluster = final, log_l = l1, alpha = alpha, Normalizer = s,
+              lglk_l = lglk_l, run_times = run_times))
 }
 
 

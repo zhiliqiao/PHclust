@@ -4,7 +4,7 @@
 #' @param by a
 #'
 #' @return a
-#' @importFrom stats cor optimize pchisq quantile rmultinom
+#' @importFrom stats cor optimize pchisq quantile rmultinom optim runif
 #' @noRd
 sumRow=function(x,by=NULL){
   if(is.vector(x)) x=matrix(x,ncol=length(x))
@@ -25,19 +25,33 @@ sumRow=function(x,by=NULL){
 #' @param Z_mat a
 #'
 #' @return a
-#' @importFrom stats cor optimize pchisq quantile rmultinom
+#' @importFrom stats cor optimize pchisq quantile rmultinom optim runif
 #' @noRd
-Est_q = function(n, Treatment, Z_mat){
+Est_q = function(n, Treatment, Z_mat, s){
   i0 = c(match(unique(Treatment), Treatment), length(Treatment) + 1)
-  q = matrix(0, ncol(Z_mat), length(unique(Treatment)))
-  for(i in 1:ncol(q)){
-    data_temp = n[, (i0[i]):(i0[i+1]-1)]
-    for(k in 1:ncol(Z_mat)){
-      z1 = Z_mat[, k]
-      q[k, i] = sum(z1 * rowSums(data_temp != 0)) / (ncol(data_temp) * sum(z1))
+
+  q = matrix(0, nrow = ncol(Z_mat), ncol = ncol(n))
+  for(k in 1:ncol(Z_mat)){
+    z_k = Z_mat[, k]
+    f_max = function(x){
+      a = x[1]
+      b = x[2]
+      - sum(sum(log(1+exp(a + b*s)))*z_k) +
+        sum(outer(z_k, a + b*s, '*') * (n != 0))
     }
+    f_max_gr = function(x){
+      a = x[1]
+      b = x[2]
+      temp = exp(a + b*s) / (1 + exp(a + b*s))
+      gr_a = sum(rowSums(n != 0) * z_k) - sum(sum(temp) * z_k)
+      gr_b = sum(outer(z_k, s, '*') * (n != 0)) - sum(sum(temp * s) * z_k)
+      c(gr_a, gr_b)
+    }
+
+    opt_para = optim(c(1,1), f_max, f_max_gr, method = 'BFGS', control=list(fnscale=-1))$par
+    q[k, ] = 1 / (1 + exp(- opt_para[1] - opt_para[2]*s))
   }
-  q = 0.5 + (q - 0.5) * (1-1e-10)
+
   q
 }
 
@@ -52,9 +66,10 @@ Est_q = function(n, Treatment, Z_mat){
 #' @param Treatment a
 #'
 #' @return a
-#' @importFrom stats cor optimize pchisq quantile rmultinom
+#' @importFrom stats cor optimize pchisq quantile rmultinom optim runif
 #' @noRd
 Est_alpha = function(s, n, mu, Treatment){
+  if(is.null(dim(mu))){mu = matrix(mu, ncol = 1)}
   a1 = rowSums(n)
   a1 = matrix(rep(a1, nrow(mu)), ncol = nrow(mu), byrow = FALSE)
 
@@ -87,22 +102,20 @@ Est_alpha = function(s, n, mu, Treatment){
 #' @param q a
 #'
 #' @return a
-#' @importFrom stats cor optimize pchisq quantile rmultinom
+#' @importFrom stats cor optimize pchisq quantile rmultinom optim runif
 #' @noRd
 l_hp = function(Treatment, s, ng, mu, alpha, q){
   t = as.vector((summary(as.factor(Treatment)))[as.factor(unique(Treatment))])
 
   mu_temp = rep(mu, times = t)
-  q = 0.5 + (q - 0.5) * (1-1e-10)
-  q_temp = rep(q, times = t)
 
   lambda = exp(s + alpha + mu_temp)
   temp0 = lambda
   temp0[abs(log(lambda)) < log(100)] = log(exp(lambda[abs(log(lambda)) < log(100)]) - 1)
   temp0[lambda < 1/100] = log(lambda[lambda < 1/100])
 
-  l0 = log(1 - q_temp)
-  l1 = log(q_temp) + ng * (alpha + mu_temp) - temp0
+  l0 = log(1 - q)
+  l1 = log(q) + ng * (alpha + mu_temp) - temp0
   sum(l0 * as.numeric(ng == 0) + l1 * as.numeric(ng > 0))
 }
 
@@ -119,7 +132,7 @@ l_hp = function(Treatment, s, ng, mu, alpha, q){
 #' @param p a
 #'
 #' @return a
-#' @importFrom stats cor optimize pchisq quantile rmultinom
+#' @importFrom stats cor optimize pchisq quantile rmultinom optim runif
 #' @noRd
 Z_g = function(Treatment, sg, ng, mu, alpha_g, q, p){
   l = c()
@@ -147,7 +160,7 @@ Z_g = function(Treatment, sg, ng, mu, alpha_g, q, p){
 #' @param q a
 #'
 #' @return a
-#' @importFrom stats cor optimize pchisq quantile rmultinom
+#' @importFrom stats cor optimize pchisq quantile rmultinom optim runif
 #' @noRd
 Expect_Z = function(Treatment, s, n, mu, alpha, p, q){
   Z_mat = matrix(0, nrow(n), nrow(q))
@@ -178,7 +191,7 @@ Expect_Z = function(Treatment, s, n, mu, alpha, p, q){
 #' @param Z_mat a
 #'
 #' @return a
-#' @importFrom stats cor optimize pchisq quantile rmultinom
+#' @importFrom stats cor optimize pchisq quantile rmultinom optim runif
 #' @noRd
 l_hp_k = function(Treatment, s, n, mu_k, alpha, q, k, Z_mat){
   l_mu = 0
@@ -202,11 +215,12 @@ l_hp_k = function(Treatment, s, n, mu_k, alpha, q, k, Z_mat){
 #' @param Z_mat a
 #'
 #' @return a
-#' @importFrom stats cor optimize pchisq quantile rmultinom
+#' @importFrom stats cor optimize pchisq quantile rmultinom optim runif
 #' @noRd
 l_hp_ki = function(Treatment, s, n, mu_ki, alpha, q, k, i, Z_mat){
   i0 = c(match(unique(Treatment), Treatment), length(Treatment) + 1)
   data_i = n[, (i0[i]):(i0[i+1] - 1)]
+  data_i = as.matrix(data_i, ncol = i0[i+1] - i0[i])
   lambda_i = exp(outer(alpha[, k], s[(i0[i]):(i0[i+1] - 1)], '+') + mu_ki)
   temp0 = lambda_i
   temp0[abs(log(lambda_i)) < log(100)] = log(exp(lambda_i[abs(log(lambda_i)) < log(100)]) - 1)
@@ -225,7 +239,7 @@ l_hp_ki = function(Treatment, s, n, mu_ki, alpha, q, k, i, Z_mat){
 #' @param Treatment a
 #'
 #' @return a
-#' @importFrom stats cor optimize pchisq quantile rmultinom
+#' @importFrom stats cor optimize pchisq quantile rmultinom optim runif
 #' @noRd
 find_norm = function(data, Treatment){
   n = data.matrix(data)
@@ -247,7 +261,7 @@ find_norm = function(data, Treatment){
 #' @param mydata a
 #'
 #' @return a
-#' @importFrom stats cor optimize pchisq quantile rmultinom
+#' @importFrom stats cor optimize pchisq quantile rmultinom optim runif
 #' @noRd
 dis_tau = function(mydata){
   return(cor(t(mydata$Count), method = 'kendall'))
@@ -262,13 +276,13 @@ dis_tau = function(mydata){
 #' @param dis a
 #'
 #' @return a
-#' @importFrom stats cor optimize pchisq quantile rmultinom
+#' @importFrom stats cor optimize pchisq quantile rmultinom optim runif
 #' @noRd
 initial = function(mydata, nK, dis){
+  Treatment = mydata$Treatment
+  i0 = c(match(unique(Treatment), Treatment), length(Treatment) + 1)
   if((sum(is.na(dis)) > 0) == TRUE){index0 = sample(1:nrow(mydata$Count), nK, replace = FALSE)}
   else{
-    Treatment = mydata$Treatment
-    i0 = c(match(unique(Treatment), Treatment), length(Treatment) + 1)
     index0 = sample(1:nrow(mydata$Count), 1)
     for(i in 1:(nK - 1)){
       dis0 = dis[index0, ]
@@ -294,6 +308,7 @@ initial = function(mydata, nK, dis){
 
   for (i in 1:(length(i0)-1)){
     temp = data0[, (i0[i]):(i0[i+1]-1)]
+    temp = as.matrix(temp, ncol = i0[i+1] - i0[i])
 
     q0[, i] = 1 - apply(temp==0, 1, sum)/ncol(temp)
     q0 = 0.5 + (q0 - 0.5) * (1-1e-10)
@@ -303,6 +318,9 @@ initial = function(mydata, nK, dis){
   }
   mu0[!is.finite(mu0)]=0
   mu0 = sweep(mu0, 1, rowMeans(mu0), '-')
+
+  q0 = matrix(0.5 + runif(nK * ncol(mydata$Count), -0.1, 0.1),
+              nrow = nK, ncol = ncol(mydata$Count))
 
   return(list(q0 = q0, mu0 = mu0, index = index0))
 }
@@ -319,7 +337,7 @@ initial = function(mydata, nK, dis){
 #' @param cool a
 #'
 #' @return a
-#' @importFrom stats cor optimize pchisq quantile rmultinom
+#' @importFrom stats cor optimize pchisq quantile rmultinom optim runif
 #' @noRd
 hp_cluster = function(mydata, q, mu, method = c('EM', 'SA'), absolute, cool = 0.9){
   s = mydata$Normalizer
@@ -331,17 +349,19 @@ hp_cluster = function(mydata, q, mu, method = c('EM', 'SA'), absolute, cool = 0.
 
 
   iter = 0
-  lglk_list = c(-100000000)
+  lglk_list = c(-Inf)
   Z_list = list()
   i0 = c(match(unique(Treatment), Treatment), length(Treatment) + 1)
+
+  run_times = c() # computational time. Delete after use
 
   repeat{
     iter = iter + 1
 
+    start.time = Sys.time() # computational time. Delete after use
     if(absolute == TRUE){alpha = matrix(0, ncol = nrow(mu), nrow = nrow(n))}
     Z_mat = Expect_Z(Treatment, s, n, mu, alpha, p, q)
 
-    if(method == 'EM') Z_mat = Z_mat
     if(method == 'SA') {
       tem = 2*cool^(iter)
       Z_temp = Z_mat^(1/tem)
@@ -358,7 +378,7 @@ hp_cluster = function(mydata, q, mu, method = c('EM', 'SA'), absolute, cool = 0.
 
     p_new = colSums(Z_mat)/nrow(n)
 
-    q_new = Est_q(n, Treatment, Z_mat)
+    q_new = Est_q(n, Treatment, Z_mat, s)
 
     mu_temp = matrix(0, nrow(mu), ncol(mu))
     for(k1 in 1:nrow(mu_temp)){
@@ -397,7 +417,10 @@ hp_cluster = function(mydata, q, mu, method = c('EM', 'SA'), absolute, cool = 0.
 
 
     prop_diff = abs(1 - lglk_list[length(lglk_list)]/lglk_list[length(lglk_list)-1])
-    if(iter == 10 | prop_diff<1e-5) break
+
+    run_times = c(run_times, Sys.time() - start.time) # computational time. Delete after use
+
+    if(iter > 10 & prop_diff<1e-5) break
   }
 
   Z_mat_final = Expect_Z(Treatment, s, n, mu, alpha, p, q)
@@ -420,7 +443,8 @@ hp_cluster = function(mydata, q, mu, method = c('EM', 'SA'), absolute, cool = 0.
 
   lglk = max(lglk_list)
 
-  return(list(final = final, lglk = lglk, Z = Z_opt, q = q, mu = mu, alpha = alpha))
+  return(list(final = final, lglk = lglk, lglk_l = lglk_list, Z = Z_opt, q = q, mu = mu, alpha = alpha,
+              run_times = run_times))
 }
 
 
@@ -437,7 +461,7 @@ hp_cluster = function(mydata, q, mu, method = c('EM', 'SA'), absolute, cool = 0.
 #' @param mu_i a
 #'
 #' @return a
-#' @importFrom stats cor optimize pchisq quantile rmultinom
+#' @importFrom stats cor optimize pchisq quantile rmultinom optim runif
 #' @noRd
 l_mu = function(data_i, s_i, Treatment, alphaij, mu_i){
   lambda = exp(outer(alphaij, s_i, '+') + mu_i)
@@ -459,7 +483,7 @@ l_mu = function(data_i, s_i, Treatment, alphaij, mu_i){
 #' @param i0 a
 #'
 #' @return a
-#' @importFrom stats cor optimize pchisq quantile rmultinom
+#' @importFrom stats cor optimize pchisq quantile rmultinom optim runif
 #' @noRd
 g = function(n, s, alpha, Treatment, i0){
   mu_m = rep(0, length(unique(Treatment)))
